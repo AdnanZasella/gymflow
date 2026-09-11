@@ -56,7 +56,7 @@ tidigare bara jobbat med vanilla HTML/CSS/JS + Vite, ingen React-erfarenhet).
 
 ### 3.2 Pass/sessions (admin-hanterat)
 - [ ] Admin: skapa träningspass (titel, typ t.ex. Yoga/Spinning/Crossfit,
-      beskrivning, tid, plats/sal, tränare, kapacitet)
+  beskrivning, tid, plats/sal, tränare, kapacitet)
 - [ ] Admin: redigera pass
 - [ ] Admin: ta bort pass
 - [ ] Alla: lista kommande pass (t.ex. veckoschema)
@@ -97,12 +97,16 @@ DTO         → vad som faktiskt skickas ut/in i API:et (aldrig exponera Entity 
 **users**
 | Kolumn | Typ | Not |
 |---|---|---|
-| id | UUID/bigint (PK) | |
-| email | varchar, unik | |
-| password_hash | varchar | BCrypt |
-| full_name | varchar | |
-| role | varchar/enum | USER / ADMIN |
-| created_at | timestamp | |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY (PK) | |
+| email | VARCHAR(255), NOT NULL, UNIQUE (constraint: users_email_unique) | |
+| password_hash | VARCHAR(60), NOT NULL | BCrypt-hash, alltid 60 tecken |
+| first_name | VARCHAR(255) | |
+| last_name | VARCHAR(255) | |
+| role | VARCHAR(20), NOT NULL | USER / ADMIN, validerat via Java-enum (ingen DB-level CHECK) |
+| created_at | TIMESTAMP, DEFAULT now() | |
+
+Implementerad i `V1__create_users_table.sql`. Obs: `full_name` byttes till separata
+`first_name`/`last_name`-fält under implementation (bättre för sortering/sökning).
 
 **sessions** (träningspass)
 | Kolumn | Typ | Not |
@@ -206,8 +210,9 @@ Relation: **users ↔ sessions** via **bookings** (many-to-many med extra fält)
 > Uppdatera denna sektion löpande. Skriv datum + kort kommentar vid varje avklarad punkt.
 
 ### Fas 1 — Projektgrund
-- [ ] Projektsetup (Spring Boot + Docker + PostgreSQL)
-- [ ] User-entitet & databas
+- [x] Projektsetup (Spring Boot + Docker + PostgreSQL)
+- [x] Users-tabell (Flyway-migration V1, se avsnitt 5)
+- [ ] User-entitet (Java) & repository
 - [ ] Registrering & inloggning
 
 ### Fas 2 — Kärnresurser
@@ -256,3 +261,35 @@ Andra namn som övervägdes: fitbook, sessionly, trainly, spring-gym-booking.
 > Fyll på här efter varje kodsession, så vi snabbt kan repetera var vi var.
 
 - **2026-09-08** — Projektdokument skapat. Repo `gymflow` skapat på GitHub. CLAUDE.md skapat för Claude Code-arbetsflöde. Redo att börja Fas 1.
+- **2026-09-11** — Fas 1 påbörjad. Spring Boot 4.1-projekt skapat via start.spring.io
+  (Web, JPA, PostgreSQL, Security, Validation, DevTools). Docker Compose satt upp
+  med PostgreSQL 16 i `infra/docker-compose.yml`. Beslutade att köra Flyway för
+  databasmigrationer (inte `ddl-auto=update`).
+
+  **Klart:** `V1__create_users_table.sql` skriven och körd. `users`-tabellen
+  finns i databasen, verifierad via `\dt` i psql. Branch
+  `feature/users-flyway-migration` → PR → mergad till `main`.
+
+  **Två knepiga buggar felsökta och lösta (värt att komma ihåg):**
+      1. **Portkrock på 5432**: en lokal PostgreSQL-tjänst (installerad tidigare,
+         troligen från en skolkurs) körde parallellt med Docker-containern på
+         samma port. Spring Boot kopplade mot fel instans → autentiseringsfel
+         trots korrekta lösenord överallt. Löst genom att stänga av den lokala
+         Windows-tjänsten (Services → postgresql-x64-16 → Stop, Startup type: Manual).
+         **Lärdom:** vid mystiska autentiseringsfel med Docker-DB, kör
+         `netstat -ano | findstr :5432` och kolla om fler än en process lyssnar.
+      2. **Flyway kördes aldrig, helt tyst utan fel**: Spring Boot 4 modulariserade
+         auto-konfigurationen per teknologi. `flyway-core` som beroende räcker inte
+         längre — måste använda `spring-boot-starter-flyway` istället, annars
+         saknas kopplingslogiken mellan Flyway och Spring Boot helt (ingen banner,
+         inga migrationsrader, men också inga felmeddelanden). Fixat i `pom.xml`.
+         **Lärdom:** i Spring Boot 4, om en auto-konfiguration verkar helt frånvarande
+         (inte ens i Condition Evaluation Report), kolla om det finns en dedikerad
+         `spring-boot-starter-X` istället för bara rå-biblioteket.
+
+  **Beslut:** `full_name` → separata `first_name`/`last_name`-fält (se avsnitt 5,
+  uppdaterat). `role` valideras via Java-enum, ingen DB-level CHECK-constraint
+  (medvetet val, inte glömt).
+
+  **Nästa steg:** `User.java`-entitet + repository (Fas 1, näst sista punkten
+  innan register/login).
